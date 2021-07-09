@@ -1,0 +1,11 @@
+.cache
+
+dist
+node_modules
+
+# MAC OS X file
+.DS_Store
+
+*.orig
+
+*.history/
