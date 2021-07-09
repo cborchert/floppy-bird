@@ -9,5 +9,8 @@
   "scripts": {
     "dev": "parcel index.html -p 8947",
     "build": "parcel build index.html"
+  },
+  "dependencies": {
+    "p5": "^1.4.0"
   }
 }
