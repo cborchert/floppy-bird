@@ -1,158 +1,141 @@
 import p5 from "p5";
 
+import Pipe from "./pipe/Pipe";
+import Bird from "./bird/Bird";
+import { createPipePair } from "./pipe/pipeUtils";
+
+import {
+  SCREEN_SIZE,
+  PIPE_GAP,
+  SPEED,
+  FRAMEDRAW,
+  NUM_BIRDS,
+  BIRD_RADIUS,
+  USE_AI,
+} from "./constants";
+
 const sketch = (p) => {
-  const SCREEN_SIZE = 800;
-  const BIRD_RADIUS = 40;
-  let PIPE_GAP = 350;
-  const PIPE_WIDTH = 150;
-  const PIPE_MIN_HEIGHT = 50;
+  // here we have access to p5 custom methods using p, but not in the global scope
+
+  let pipeGap = PIPE_GAP;
+  let speed = SPEED;
+  let framedraw = FRAMEDRAW;
   const scene = {
     canvas: undefined,
-    player: undefined,
     pipes: undefined,
+    birds: undefined,
   };
-  const GRAVITY = 0.7;
-  const UP = -12;
-  let SPEED = 5;
-  let FRAMEDRAW = 100;
-  let YOUHITMF = false;
-  let POINT = 0;
-  let COUNT = 0;
-  let birdSprite;
+  let score = 0;
+  let counter = 0;
+  let gameOver = false;
+  let updateSpeedSlider;
 
-  function initScene() {
-    scene.player = {
-      pos: p.createVector(100, scene.canvas.height / 4),
-      v: p.createVector(0, 0),
-      radius: BIRD_RADIUS,
-      dead: false,
-    };
-    scene.pipes = createPipePair();
-    POINT = 0;
-    COUNT = 0;
+  function reset() {
+    // TODO: Implement LEARNING cycle of AI
+
+    scene.birds = Array.apply(null, Array(NUM_BIRDS)).map(
+      () =>
+        new Bird({
+          y: p.random(0 + BIRD_RADIUS, SCREEN_SIZE - BIRD_RADIUS),
+        })
+    );
+
+    scene.pipes = createPipePair(pipeGap, p);
+    score = 0;
+    counter = 0;
+    gameOver = false;
   }
 
   function setup() {
-    // here we have access to p5 custom methods, but not in the global scope
     scene.canvas = p.createCanvas(SCREEN_SIZE, SCREEN_SIZE);
-    initScene();
+
+    // a slider to control the speed of updates (will be useful for AI)
+    updateSpeedSlider = p.createSlider(1, 200, 1);
+    reset();
   }
 
-  function createPipePair() {
-    const gapStart = p.random(
-      PIPE_MIN_HEIGHT,
-      SCREEN_SIZE - PIPE_GAP - PIPE_MIN_HEIGHT
-    );
-    return [
-      {
-        x: SCREEN_SIZE,
-        y: 0,
-        height: gapStart,
-      },
-      {
-        x: SCREEN_SIZE,
-        y: gapStart + PIPE_GAP,
-        height: SCREEN_SIZE - (gapStart + PIPE_GAP),
-      },
-    ];
-  }
-
-  function draw() {
-    let { player, pipes } = scene;
-    COUNT += 1;
-
-    p.background(220, 240, 255);
-
-    /* DRAW */
-    p.fill(255, 255, 200);
-    p.ellipse(player.pos.x, player.pos.y, player.radius * 2, player.radius * 2);
-    drawPipes();
-    drawScrore();
-
-    if (player.dead) {
-      writeLoser();
+  function update() {
+    let { birds = [], pipes = [] } = scene;
+    counter += 1;
+    /** Gameover ? QUIT */
+    if (gameOver) {
       return;
     }
 
-    /* UPDATE */
-    player.v.y += GRAVITY;
-    if (player.v.y > 20) {
-      player.v.y = 20;
-    }
-    if (player.v.y < -20) {
-      player.v.y = -20;
-    }
+    /* update birds */
+    birds.forEach((bird) => bird.update());
 
-    player.pos.y += player.v.y;
-    if (player.pos.y > SCREEN_SIZE) {
-      player.pos.y = SCREEN_SIZE;
-      player.v.y = 0;
-    }
+    /* update pipes */
+    pipes.forEach((pipe) => pipe.update(speed));
+    scene.pipes = pipes.filter((pipe) => pipe.onScreen);
 
-    if (player.pos.y < 0) {
-      player.pos.y = 0;
+    /* update scene */
+    if (counter % framedraw === 0) {
+      scene.pipes.push(...createPipePair(pipeGap, p));
+      score += 1;
     }
-
-    /* Pipes */
-    if (COUNT % FRAMEDRAW === 0) {
-      scene.pipes.push(...createPipePair());
-      POINT += 1;
-    }
-    if (COUNT % 200 === 0) {
-      PIPE_GAP -= 10;
-      const min = player.radius * 2 + 20;
-      if (PIPE_GAP < min) {
-        PIPE_GAP = min;
+    if (counter % 200 === 0) {
+      pipeGap -= 10;
+      const min = BIRD_RADIUS * 2 + 20;
+      if (pipeGap < min) {
+        pipeGap = min;
       }
     }
-    if (COUNT % 500 === 0) {
-      SPEED += SPEED < 15 ? 1 : 0;
+    if (counter % 500 === 0) {
+      speed += speed < 15 ? 1 : 0;
     }
-    updatePipes();
-    checkHit();
+
+    /** check for collisions */
+    const pipesToCheck = pipes.slice(0, 2);
+    birds.forEach((bird) => {
+      if (bird.dead) return;
+      const dead = pipesToCheck.reduce((isDead, pipe) => {
+        const collision = bird.collides(pipe);
+        return collision || !bird.onScreen || isDead;
+      }, bird.dead);
+
+      if (dead) {
+        bird.die();
+      }
+    });
+
+    /** Check gameover */
+    if (birds.every((bird) => bird.dead)) {
+      gameOver = true;
+    }
+
+    if (USE_AI) {
+      // TODO IMPLEMENT AI
+      birds.forEach((bird) => bird.think(pipes));
+    }
   }
 
-  function drawScrore() {
+  function draw() {
+    let { birds = [], pipes = [] } = scene;
+
+    /* DRAW BACKGROUND*/
+    p.background(220, 240, 255);
+
+    /* DRAW BIRD */
+    birds.forEach((bird) => bird.draw(p));
+
+    /* DRAW PIPES */
+    pipes.forEach((pipe) => pipe.draw(p));
+
+    /* DRAW SCORE */
     p.fill(0);
     p.textSize(50);
-    p.text(Math.floor(POINT), 50, 50);
-  }
+    p.text(Math.floor(score), 50, 50);
 
-  function updatePipes() {
-    let { pipes } = scene;
+    if (gameOver) {
+      writeLoser();
+    }
 
-    scene.pipes = pipes
-      .map((pipe) => ({
-        ...pipe,
-        x: pipe.x - SPEED,
-      }))
-      .filter((pipe) => pipe.x > -PIPE_WIDTH);
-  }
-
-  function checkHit() {
-    let { player, pipes } = scene;
-    const pipesToCheck = pipes.slice(0, 2);
-    const dead = pipesToCheck.reduce((isDead, pipe) => {
-      const playerRight = player.pos.x + player.radius;
-      const playerLeft = player.pos.x - player.radius;
-      const pipeLeft = pipe.x;
-      const pipeRight = pipe.x + PIPE_WIDTH;
-
-      const hitX = playerRight > pipeLeft && playerLeft < pipeRight;
-
-      const playerTop = player.pos.y - player.radius;
-      const playerBottom = player.pos.y + player.radius;
-      const pipeTop = pipe.y;
-      const pipeBottom = pipe.y + pipe.height;
-
-      const hitY = playerBottom > pipeTop && playerTop < pipeBottom;
-
-      const offScreen = playerBottom > scene.canvas.height || playerTop < 0;
-
-      return (hitX && hitY) || offScreen || isDead;
-    }, false);
-
-    player.dead = dead;
+    /* UPDATE */
+    // allows for a fastforward effect
+    for (let i = 0; i < updateSpeedSlider.value(); i++) {
+      update();
+    }
   }
 
   function keyPressed(val) {
@@ -167,21 +150,17 @@ const sketch = (p) => {
   }
 
   function handleUserInteraction() {
-    const { player } = scene;
-    player.v.y += UP;
-    if (player.dead) {
-      initScene();
+    if (gameOver) {
+      reset();
+      return;
     }
-  }
 
-  function drawPipes() {
-    const { pipes } = scene;
-
-    p.fill(200, 255, 200);
-    if (pipes)
-      pipes.forEach((pipe) => {
-        p.rect(pipe.x, pipe.y, PIPE_WIDTH, pipe.height);
-      });
+    if (USE_AI) {
+      // if AI is enabled, then don't do anything
+      return;
+    }
+    const { birds } = scene;
+    birds.forEach((bird) => bird.flap());
   }
 
   function writeLoser() {
@@ -191,7 +170,7 @@ const sketch = (p) => {
     p.textSize(size);
     p.text("AHAHAH LOSER !", SCREEN_SIZE / 2, SCREEN_SIZE / 2 - size / 2);
     p.text(
-      Math.floor(POINT) + " puntos",
+      Math.floor(score) + " puntos",
       SCREEN_SIZE / 2,
       SCREEN_SIZE / 2 + size
     );
